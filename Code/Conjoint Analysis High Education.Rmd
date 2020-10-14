@@ -1,0 +1,309 @@
+---
+title: "Conjoint Analysis High Education"
+author: "Mora, S."
+date: "diciembre 12, 2019"
+output:
+ rmdformats::readthedown:
+ self_contained: true
+code_folding: hide
+thumbnails: false
+lightbox: false
+gallery: false
+highlight: tango
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+library(Cairo)
+knitr::opts_chunk$set(dev="CairoPNG")
+knitr::opts_chunk$set(echo=TRUE,out.width='2000px',dpi=200)
+options(digits = 7,
+        scipen = 999)
+```
+
+# Librerias
+```{r}
+library(tidyverse)
+library(nnet)
+library(conjoint)
+library(knitr)
+
+```
+
+# Leyendo y transformando datos
+```{r}
+readxl::read_excel("C:/Users/samora/OneDrive - Politécnico Grancolombiano/Poli/Criterios de decisión de un estudiante al momento de escoger una IES - Depurada - copia.xlsx") -> data
+data %>% head() %>% kable()
+data %>% glimpse()
+```
+
+
+## VOCACIONALES
+* "Tipo de Institución en la que estudia"
+* "b. Le gusta porque tiene futuro profesional"
+* "e. Le parece interesante porque el programa tiene prestigio"
+* "f. Le parece interesante porque el programa le puede generar buen salario"
+* "g. Le parece interesante porque el programa le genera desarrollo profesional y personal"
+* "¿En qué universidad le gustaría / le hubiera gustado estudiar?"
+* "¿Por qué piensa que puede estudiar allí?"
+* "2. Sus familiares lo motivan a estudiar en la universidad por prestigio" 
+* "3. Sus familiares lo obligan a estudiar porque es necesario estudiar un programa técnico/tecnológico/universitario"
+* "5. Sus familiares no influyen en su decisión de estudiar en una universidad" 
+
+## ELECCION
+* "Prestigio / Reputación de la Institución"
+* "La institución a la que piensa acceder/a la que accedió, es:"
+* "¿Es importante la calidad de los programas en los cuales está interesado?"
+* "El programa que escogerá / ha escogido debe tener una duración de:"
+* "El programa ofrece la posibilidad de graduarse en menor tiempo comparado con otras instituciones"
+* "El programa ofrece la posibilidad de graduarse en mismo tiempo que en otras instituciones"
+* "El programa ofrece la posibilidad de graduarse en mayor tiempo que en el resto de Instituciones"
+
+## DE SELECCION
+* "Usted considera que el costo del programa que cursa/desea cursar es:"
+* "Usted considera que el costo de vida de la ciudad donde va a cursar / cursa su programa universitario es:" 
+* "¿Dónde tuvo referencias del programa a escoger / escogido? (también con respecto a institución)?"
+* "En relación con el dinero para pagar su (futura) carrera:"
+* "Es posible que tenga acceso a programas de excelencia académica para estudiar en cualquier universidad"
+* "Tengo dificultad en estudiar en la universidad que quiero porque no tengo los medios para hacerlo"
+* "Debo acceder a otro programa porque la Universidad tiene procesos de admisión que limitan el acceso a lo que me gusta"
+
+## DE ORIGEN
+* "¿Cuál es su estrato socioeconómico actual?"
+* "Nivel de Ingresos para poder pagar mis estudios en una Institución de Educación Superior:"
+* "Nivel de estudios del grupo familiar Madre de Familia"
+* "¿En qué departamento estudia / estudió su educación secundaria?"
+* "¿En qué ciudad estudia / estudió su educación secundaria?"
+* "¿En qué país estudia / quiere estudiar su educación superior?"
+* "¿En qué departamento/estado estudia / quiere estudiar su educación superior?"
+* "¿En qué ciudad estudia / quiere estudiar su educación superior?"
+
+# Transformando datos
+```{r}
+#' cambindo a factores
+data %>% mutate_if(is.character, as.factor) -> data
+#' quitando factores con unica respuesta
+bagged <- list()
+for (n in names(data))
+  if (is.factor(data[[n]]) & length(levels(data[[n]])) < 2) {
+    bagged[n] <- n
+    print(n)
+    print(levels(data[[n]]))
+  }
+bagged %>% unlist() -> bagged
+if (!is.null(bagged)) data %>% dplyr::select(-bagged) -> data
+#' Transformando y resumiendo valores
+#data %>% group_by(AreaConocimiento) %>% count(as.numeric(TipoInstitucion), as.numeric(TieneFuturoProfesional)) -> dataModel
+data %>% group_by(AreaConocimiento) %>% tally()
+ggplot(data, aes(x = AreaConocimiento)) + geom_histogram(fill = rgb(30/255,180/255,220/255,0.9),stat = "count") + theme_bw()
+
+```
+
+# Modelo Probabilistico
+## Build Model
+```{r}
+data$AreaConocimiento = relevel(data$AreaConocimiento, ref = "INGENIERIA, ARQUITECTURA, URBANISMO Y AFINES")
+test <- multinom(AreaConocimiento ~ TipoInstitucion_ + 
+      # VOCACIONALES
+                   TieneFuturoProfesional_ + 
+                   ProgramaTienePrestigio_ +
+                   GeneraBuenSalario_ +
+                   DesarrolloProfesional_ +
+                   RazonesEstudio_ +
+                   otivacionFamiliarPorPrestigio_+
+                   ObligacionFamiliar_+
+                   FamiliaNoInfluyeDecicion_+
+      # ELECCION
+                   reputacionInstitucion_+
+                   TipoInstitucionEsperada_+
+                   ImportanteCalidadProgramas_+
+                   DuracionPrograma_+
+                   MenorTiempo_+
+      # DE SELECCION
+                   CostosPrograma_+
+                   CostoVidaUniversitario_+
+                   ReferenciasEleccion_+
+                   RelacionPagoCarrera_+
+                   PosibilidadAccesoExcelenciaAcademica_+
+                   DificultadPorFaltaMedios_+
+                   ProcesosAdmisionLimitanAcceso_+
+      # DE ORIGEN
+                   Estrato_+
+                   NivelIngresos_+
+                   NivelEstudiosMadre_
+                 , data = data)
+#summary(test)
+z <- summary(test)$coefficients/summary(test)$standard.errors
+# 2-tailed z test
+p <- (1 - pnorm(abs(z), 0, 1)) * 2
+```
+
+### Probabilidades (Odds-Ratio)
+```{r}
+exp(coef(test)) %>% kable()
+```
+
+### Intervalos de confianza de Probabilidades (Odd-Ratio)
+```{r}
+exp(confint(test)) %>% kable()
+```
+
+### P-values
+Entre más grande el valor, mayor será la probabilidad de caer en un error. Con una confianza del 95% debemos decir que solo los valores que son menores a 0.05 son estadisticamente significativos.
+```{r}
+p %>% kable()
+```
+
+### Interpretation
+```{r}
+interpreter <- (exp(coef(test))-1) %>% data.frame() %>% rownames_to_column()
+i = 3
+j = 1
+while (i < length(interpreter)) {
+  temp <- interpreter[,c(1,i)]
+  cat("\n \n",names(temp)[[2]],": \n")
+  while (j < NROW(temp)){
+    if(temp[j,][[2]]*100 > 100) {
+      cat("- La probabilidad de elegir '",temp[j,][[1]],"' sobre 'INGENIERIA, ARQUITECTURA, URBANISMO Y AFINES' es de ",abs(round(temp[j,][[2]],digits = 6))*100,"% para los estudiantes que tienen ",names(temp)[[2]], " en su respuesta. Como la probabilidad es mayor a 100, su valor es infactible y no es estadisticamente siginificativo. Es decir, este valor no expresa una probabilidad en el modelo. \n", sep = "")
+    } else {
+      if (temp[j,][[2]] < 0) {
+        cat("- La probabilidad de elegir '",temp[j,][[1]],"' sobre 'INGENIERIA, ARQUITECTURA, URBANISMO Y AFINES' disminuye en ",abs(round(temp[j,][[2]],digits = 6))*100,"% para los estudiantes que tienen ",names(temp)[[2]], " en su respuesta. Manteniendo todo lo demás constante. \n", sep = "")
+      } else {
+        cat("- La probabilidad de elegir '",temp[j,][[1]],"' sobre 'INGENIERIA, ARQUITECTURA, URBANISMO Y AFINES' aumenta en ",abs(round(temp[j,][[2]],digits = 6))*100,"% para los estudiantes que tienen ",names(temp)[[2]], " en su respuesta. Manteniendo todo lo demás constante.  \n", sep = "")
+      }
+    }
+    j = j + 1
+  }
+  i = i + 1
+  j = 1
+}
+```
+
+
+## Predict Model
+```{r}
+data$predict <- predict(test, newdata = data, type = "class")
+data$Probab <- predict(test, newdata = data, type = "prob")
+ctable <- table(data$AreaConocimiento, data$predict)
+ctable
+round((sum(diag(ctable))/sum(ctable))*100,2)
+mean(as.character(data$AreaConocimiento) != as.character(data$predict))
+
+```
+
+## Results model
+```{r}
+data$Probab %>% data.frame() %>% head(15) %>% kable()
+```
+
+
+
+# Conjoint Analysis
+## Build Prferences
+```{r}
+Preferences <- data$Probab %>% data.frame() # tabla de preferencias
+niveles <- function(variable) {data[variable] %>% unique()}
+profiles = list()
+for (variable in names(data)[1:49]) {
+  niveles(variable) %>% unlist()-> temp
+  profiles[[variable]] = temp
+  profiles %>% tail()
+}
+```
+
+## Algorithmic Model
+```{r, dev="png"}
+conjointAnalysis <- function(Variable_1, Variable_2) {
+  cat("Run! \n Variable_1 =", Variable_1,"\n Variable_2 =",Variable_2,"\n \n \n Desing Profiles \n")
+  cat(Variable_1, ": \n")
+  profiles[[Variable_1]] %>% levels() %>% print()
+  cat(Variable_2, ": \n")
+  profiles[[Variable_2]]  %>% levels() %>% print()
+  desing <- expand.grid( # tabla del diseño de perfiles
+    Variable_1 = profiles[[Variable_1]] ,
+    Variable_2 = profiles[[Variable_2]]
+  ); desing %>% head(); desing %>% `names<-`(c(Variable_1, Variable_2)) -> desing; desing %>% head()
+  cat("\n \n Build list of attributes \n")
+  attribute <- list(
+    profiles[[Variable_1]]  %>% as.character(),
+    profiles[[Variable_2]] %>%  as.character()
+  ); attribute <- attribute %>% unlist(); attribute %>% print()
+  cat("\n \n Build conjoint analysis \n")
+  conjoint_analysis <- conjoint::Conjoint(y = Preferences, x = desing, z = attribute) %>% print()
+  #Utilites <- caUtilities(y=Preferences, x=desing, z=attribute); print(Utilites)
+  cat("\n \n Importance values \n")
+  Importance <- caImportance(y = Preferences, x = desing); cbind(names(desing), Importance) %>% print()
+}
+```
+
+## List of variables
+
+```{r}
+VOCACIONALES <- c(
+  #"TipoInstitucion_",  
+  #"TieneFuturoProfesional_"
+  #"ProgramaTienePrestigio_" ,
+  "GeneraBuenSalario_" ,
+  "DesarrolloProfesional_" 
+  #"RazonesEstudio_" ,
+  #"otivacionFamiliarPorPrestigio_",
+  #"ObligacionFamiliar_",
+  #"FamiliaNoInfluyeDecicion_"
+  ); VOCACIONALES %>% print()
+ELECCION <- c(
+  #"reputacionInstitucion_",
+  #"TipoInstitucionEsperada_"
+  "ImportanteCalidadProgramas_"
+  #"DuracionPrograma_",
+  #"MenorTiempo_"
+  ); ELECCION %>% print()
+SELECCION <- c(
+  "CostosPrograma_"
+  #"CostoVidaUniversitario_"
+  #"ReferenciasEleccion_",
+  #"RelacionPagoCarrera_",
+  #"PosibilidadAccesoExcelenciaAcademica_",
+  #"DificultadPorFaltaMedios_",
+  #"ProcesosAdmisionLimitanAcceso_"
+  ); SELECCION %>% print()
+ORIGEN <- c(
+  "Estrato_"
+  #"NivelIngresos_",
+  #"NivelEstudiosMadre_"
+  );ORIGEN %>% print()
+
+```
+
+## Run Algorithm
+```{r}
+for (variablesVocacionales in VOCACIONALES) {
+  for (variableEleccion in ELECCION) {
+    cat("Doing ->",variablesVocacionales, variableEleccion, "\n")
+    conjointAnalysis(variablesVocacionales, variableEleccion)
+  }
+  for (variableSeleccion in SELECCION) {
+    cat("Doing ->",variablesVocacionales, variableSeleccion, "\n")
+    conjointAnalysis(variablesVocacionales, variableSeleccion)
+  }
+  for (variableOrigen in ORIGEN) {
+    cat("Doing ->",variablesVocacionales, variableOrigen, "\n")
+    conjointAnalysis(variablesVocacionales, variableOrigen)
+  }
+} ; for (variableEleccion in ELECCION) {
+  for (variableSeleccion in SELECCION) {
+    cat("Doing ->",variableEleccion, variableSeleccion, "\n")
+    conjointAnalysis(variableEleccion, variableSeleccion)
+  }
+  for (variableOrigen in ORIGEN) {
+    cat("Doing ->",variableEleccion, variableOrigen, "\n")
+    conjointAnalysis(variableEleccion, variableOrigen)
+  }
+} ; for (variableSeleccion in SELECCION) {
+  for (variableOrigen in ORIGEN) {
+    cat("Doing ->",variableSeleccion, variableOrigen, "\n")
+    conjointAnalysis(variableSeleccion, variableOrigen)
+  }
+}
+```
+
